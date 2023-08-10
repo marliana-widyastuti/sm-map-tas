@@ -1,0 +1,17 @@
+#!/bin/bash
+#PBS -P sm_map_tasmania
+#PBS -l select=1:ncpus=4:mem=8gb
+#PBS -l walltime=00:10:00
+#PBS -N run_model
+
+
+# Load the libraries and software needed
+module load python/3.8.2
+module load gdal/3.5.2
+module load cuda/10.2.89
+module load openmpi-gcc/3.1.3
+
+# Change directories to wherever you want your notebook to serve from
+cd $PBS_O_WORKDIR
+
+python3 run_model.py 

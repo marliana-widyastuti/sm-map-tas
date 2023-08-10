@@ -62,7 +62,7 @@ class runArea:
         self.var_in = lstm_cols + mlp_cols
         self.lmod = os.listdir(model_path)
         self.path_to_private_key = 'sm-tassie-e4591e32eeab.json'
-        self.n = self.tile()
+        
 
     def reclass_LU():
         LU = ee.Image("users/ignaciofuentessanroman/AU/clum_50m1218m")
@@ -157,7 +157,9 @@ class runArea:
     def exportImage(self):
         geo_exp = ee.Geometry.BBox(self.xmin, self.ymin, self.xmax, self.ymax)
         img = self.combineImages().clip(geo_exp)
-        task = ee.batch.Export.image.toCloudStorage(img.toFloat(), 
+        # crs = img.projection().getInfo()['crs']
+        reImg = img.resample('bilinear')
+        task = ee.batch.Export.image.toCloudStorage(reImg.toFloat(), 
                                              bucket='sm-tassie',
                                              fileNamePrefix=('raw_input_data/img_{}').format(self.pattern),
                                              fileFormat='GeoTIFF',
@@ -233,8 +235,8 @@ class runArea:
             
             blob = self.get_list_img(dir='raw_input_data')
             blob = [x for x in blob if self.pattern in x]
-            # self.n = len(blob)
-            if self.n > 1:
+            n = self.tile()
+            if n > 1:
                 for count, ob in enumerate(blob):
                     fname = ob[19:]  ## raw_input_data/img_{fname}
                     out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
@@ -259,7 +261,8 @@ class runArea:
             print("direcory already exist")
 
         list_raw = os.listdir(self.out + self.sep + 'raw')
-        if self.n > 1:
+        n = self.tile()
+        if n > 1:
             for i, mod in enumerate(self.lmod):
                 pattern = (f'{mod}_{self.pattern}')
                 img_1mod = [x for x in list_raw if pattern in x]
@@ -271,7 +274,7 @@ class runArea:
                     with rasterio.open(path) as src:
                         out_meta = src.meta.copy()
                     out_meta.update({
-                        "count": self.n,
+                        "count": n,
                     })
 
                 mosaic, output = merge(ras)

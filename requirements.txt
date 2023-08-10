@@ -1,12 +1,8 @@
 numpy==1.22.3
 python-dateutil==2.8.2
+gdal==3.0.2
 rasterio==1.2.10
-Python==3.9.12
 tensorflow==2.9.1
 keras==2.9.0
-gdal==3.0.2
-geemap==0.16.7
-earthengine-api==0.1.321
 scikit-learn==1.1.1
-google-cloud-storage==2.10.0
 joblib==1.1.0
