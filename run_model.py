@@ -36,6 +36,7 @@ D.exportImage()
 D.exe_mod(model_path=args.modelPath)
 D.combined_SM()
 D.calc_sm()
+D.SMtoGCS()
 
 to_day = datetime.today().strftime('%Y%m%d')
 

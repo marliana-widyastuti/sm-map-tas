@@ -38,7 +38,7 @@ class runArea:
             print("direcory already exist")
         self.out = output + self.sep + 'output'+ self.sep + date ## directory for placing the outputs
 
-        self.date = str(date)  ## format YYYY-mm-dd as input
+        self.date = str(date)  ## format YYYYmmdd as input
         self.res = int(res)
         self.xmin = float(xmin)
         self.xmax = float(xmax)
@@ -61,7 +61,7 @@ class runArea:
 
         self.var_in = lstm_cols + mlp_cols
         self.lmod = os.listdir(model_path)
-        self.path_to_private_key = 'sm-tassie-e4591e32eeab.json'
+        self.key = 'sm-tassie-e4591e32eeab.json'
         
 
     def reclass_LU():
@@ -202,8 +202,7 @@ class runArea:
                 print(win)
 
     def get_list_img(self, dir):
-        client = storage.Client.from_service_account_json(json_credentials_path=self.path_to_private_key)
-        # pref = ('raw_{}_data/img_{}').format(inout, self.pattern)
+        client = storage.Client.from_service_account_json(json_credentials_path=self.key)
         blobs = client.list_blobs('sm-tassie', prefix=dir)
         blob = []
         for x in blobs:
@@ -263,19 +262,16 @@ class runArea:
         list_raw = os.listdir(self.out + self.sep + 'raw')
         n = self.tile()
         if n > 1:
-            for i, mod in enumerate(self.lmod):
+            for _, mod in enumerate(self.lmod):
                 pattern = (f'{mod}_{self.pattern}')
                 img_1mod = [x for x in list_raw if pattern in x]
                 ras=[]
-                for i, tile in enumerate(img_1mod):
+                for _, tile in enumerate(img_1mod):
                     path = f'{self.out}/raw/{tile}'
                     img_tile = rasterio.open(path)
                     ras.append(img_tile)
                     with rasterio.open(path) as src:
                         out_meta = src.meta.copy()
-                    out_meta.update({
-                        "count": n,
-                    })
 
                 mosaic, output = merge(ras)
                 merge_meta = out_meta
@@ -284,7 +280,7 @@ class runArea:
                     'width':mosaic.shape[2],
                     "transform": output})
 
-                output_path = (f'{self.out}/merged/SM_{self.pattern}')
+                output_path = (f'{self.out}/merged/SM_{pattern}.tif')
                 with rasterio.open(output_path, 'w', **merge_meta) as m:
                     m.write(mosaic)
         else:
@@ -294,12 +290,6 @@ class runArea:
                 [shutil.copy(src+fn, dest) for fn in list_raw]
             except:
                 print('files already exist in', dest)
-
-    def read_file(file):
-        with rasterio.open(file) as src:
-            sur = src.read(1)
-            sub = src.read(2)
-        return sur, sub
     
     def calc_sm(self):
         try:
@@ -307,10 +297,13 @@ class runArea:
         except FileExistsError:
             print("direcory already exist")
         list_sm = [f'{self.out}/merged/'+x for x in os.listdir(f'{self.out}/merged/') if self.pattern in x] ## filter based on pattern
+        print(list_sm)
         dsur= list()
         dsub= list()
         for sm in list_sm:
-            sur, sub = runArea.read_file(sm)
+            with rasterio.open(sm) as src:
+                sur = src.read(1)
+                sub = src.read(2)
             dsur.append(sur)
             dsub.append(sub)
 
@@ -321,10 +314,10 @@ class runArea:
         band_sm = [dsur_mean, dsur_sd, dsub_mean, dsub_sd]
         print(len(band_sm))
 
-        self.saveMap(dsur_mean, f'L1_mean_{self.date}')
-        self.saveMap(dsur_sd, f'L1_sd_{self.date}')
-        self.saveMap(dsub_mean, f'L2_mean_{self.date}')
-        self.saveMap(dsub_sd, f'L2_sd_{self.date}')
+        self.saveMap(dsur_mean, f'L1_{self.res}_mean_SM_{self.date}')
+        self.saveMap(dsur_sd, f'L1_{self.res}_sd_SM_{self.date}')
+        self.saveMap(dsub_mean, f'L2_{self.res}_mean_SM_{self.date}')
+        self.saveMap(dsub_sd, f'L2_{self.res}_sd_SM_{self.date}')
 
     def saveMap(self, src, fname):
         list_sm = [f'{self.out}/merged/'+x for x in os.listdir(f'{self.out}/merged/') if self.pattern in x] ## filter based on pattern
@@ -337,6 +330,20 @@ class runArea:
         out_img = (f'{self.out}/map/{fname}.tif')
         with rasterio.open(out_img, 'w', **upmeta) as dest:
             dest.write(src, indexes=1)
+
+    def SMtoGCS(self):
+        lmap = os.listdir(self.out + self.sep + 'map')
+        for fname in lmap:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"]=self.key
+            storage_client = storage.Client()
+            bucket = storage_client.get_bucket("sm-tassie") # your bucket name
+            blob = bucket.blob(f'output/{fname}')
+            blob.upload_from_filename(f'{self.out}{self.sep}map{self.sep}{fname}')
+        
+        a = os.stat(f'{self.out}{self.sep}map{self.sep}{fname}')
+        sleep = int(a.st_size/1000000)
+        time.sleep(sleep)
+
 
 #### download weather data
 class tasData:
