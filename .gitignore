@@ -5,3 +5,6 @@ __pycache__
 output
 weather_data
 model
+scalerAU.save
+scalerTAS.save
+scaler1.save

@@ -45,16 +45,17 @@ class runArea:
         self.ymin = float(ymin)
         self.ymax = float(ymax)
         self.datetime = datetime.strptime(date, '%Y%m%d')  
-        self.smap_bands = ['smap', 'ssmap','smap1', 'ssmap1', 'smap2', 'ssmap2', 'smap3', 'ssmap3',
+        self.smap_bands = [#'smap', 'ssmap','smap1', 'ssmap1', 'smap2', 'ssmap2', 'smap3', 'ssmap3',
                            'smap4', 'ssmap4', 'smap5', 'ssmap5', 'smap6', 'ssmap6',
                            'smap7', 'ssmap7']
         self.pattern = ('{}_{}_{}-{}_{}-{}').format(self.date, self.res, int(self.xmin*100), int(self.xmax*100), int(self.ymin*100), int(self.ymax*100))
-        smap_cols = ['smap']+['smap{}'.format(str(n)) for n in range(1,8)]
-        ssmap_cols = ['ssmap']+['ssmap{}'.format(str(n)) for n in range(1,8)]
+        smap_cols = ['smap{}'.format(str(n)) for n in range(4,8)]
+        ssmap_cols = ['ssmap{}'.format(str(n)) for n in range(4,8)]
         rains_cols = ['rain']+['rain{}'.format(str(n)) for n in range(1,4)]
         lstm_cols = smap_cols+ssmap_cols
         mlp_cols = rains_cols+['tmin','tmax',
                     'irri', 'past', 'agri', 'fore', 'sava',
+                    'elevation',
                     'AWC1', 'AWC2', 'AWC3', 'AWC4', 
                     'SOC1', 'SOC2', 'SOC3', 'SOC4', 
                     'CLY1', 'CLY2', 'CLY3', 'CLY4']
@@ -65,6 +66,7 @@ class runArea:
         
 
     def reclass_LU():
+        DEM = ee.Image("CGIAR/SRTM90_V4")
         LU = ee.Image("users/ignaciofuentessanroman/AU/clum_50m1218m")
         MCD = ee.ImageCollection("MODIS/006/MCD12Q1")
 
@@ -90,7 +92,7 @@ class runArea:
         fore = LUx.eq(2)
         sava = LUx.gte(5)
         LUx = ee.Image.cat([irri.rename('irri'), past.rename('past'), agri.rename('agri'),
-                            fore.rename('fore'), sava.rename('sava')])
+                            fore.rename('fore'), sava.rename('sava'), DEM.rename('elevation')])
         return LUx
     
     def get_daily_smap(self):
@@ -98,7 +100,8 @@ class runArea:
         band_smap = SMAP.select(['sm_surface', 'sm_rootzone'])
         startDate = self.datetime - pd.DateOffset(days=7)
         startDate = ee.Date(startDate.strftime('%Y-%m-%d'))
-        endDate = ee.Date(self.datetime.strftime('%Y-%m-%d'))
+        endDate = self.datetime - pd.DateOffset(days=4)
+        endDate = ee.Date(endDate.strftime('%Y-%m-%d'))
         numberOfDays = endDate.difference(startDate, 'days')
 
 
@@ -110,7 +113,7 @@ class runArea:
 
         daily_smap = ee.ImageCollection(ee.List.sequence(0, numberOfDays).map(week))
         sort_smap = daily_smap.sort(prop='system:time_start', opt_ascending=False)
-        sort_smap = sort_smap.toBands().slice(0,16).rename(self.smap_bands)
+        sort_smap = sort_smap.toBands().slice(0,8).rename(self.smap_bands)
         return sort_smap
     
     def get_soil():
@@ -177,7 +180,7 @@ class runArea:
 
 ## Apply model on images saved in Cloud Storage ------------------------------------------#######
     def run_mod(raster_path, tmod, out_path):
-        scaleCov = joblib.load('scaler1.save')
+        scaleCov = joblib.load('scalerTAS.save')
         maxs = scaleCov.data_max_
         mins = scaleCov.data_min_
         with rasterio.open(raster_path) as src:
@@ -385,7 +388,7 @@ class tasData:
     def uploadToGEE(self):
         list_fname = [file for file in os.listdir(self.pathWeather) if self.date in file]
         print(list_fname)
-        for i, fname in enumerate(list_fname):
+        for _, fname in enumerate(list_fname):
             self.localToGCS(fname)
             self.GCStoGEE(fname)
             time.sleep(60)
