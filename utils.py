@@ -396,7 +396,7 @@ class tasData:
     
     def downloadWeather(self):
         #rain
-        url = f'https://www.dropbox.com/scl/fo/izet3gk0uh0hko1t2urk7/h/RainPrediction24hr_{self.date}0900AEST.tif?rlkey=nbvlekulead5tly8tho1hy7o9&dl=1'
+        url = f'https://www.dropbox.com/scl/fo/izet3gk0uh0hko1t2urk7/h/RainPrediction_{self.date}0900AEST.tif?rlkey=nbvlekulead5tly8tho1hy7o9&dl=1'
         file = f'{self.pathWeather}/RainPrediction24hr_{self.date}0900AEST.tif'
         urllib.request.urlretrieve(url, file)
         time.sleep(20)
