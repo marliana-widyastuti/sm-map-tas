@@ -8,3 +8,5 @@ model
 scalerAU.save
 scalerTAS.save
 scaler1.save
+model_apr
+log

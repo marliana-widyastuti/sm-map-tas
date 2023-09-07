@@ -187,6 +187,7 @@ class runArea:
             out_meta = src.meta.copy()
         out_meta.update({
             "count": 2,
+            "nodata": -9999
         })
         
         with (rasterio.open(raster_path, "r") as src, rasterio.open(out_path, "w", **out_meta) as dst):
@@ -200,8 +201,14 @@ class runArea:
                     container.append(pred[:, 0].ravel()) # pred1
                     container2.append(pred[:, 1].ravel()) # pred2
 
-                dst.write(np.swapaxes(np.vstack(container), 1, 0), indexes=1, window=win)
-                dst.write(np.swapaxes(np.vstack(container2), 1, 0), indexes=2, window=win)
+                d1 = np.swapaxes(np.vstack(container), 1, 0)
+                d2 = np.swapaxes(np.vstack(container2), 1, 0)
+
+                d1[np.isnan(arr[30])] = -9999.0
+                d2[np.isnan(arr[30])] = -9999.0
+
+                dst.write(d1, indexes=1, window=win)
+                dst.write(d2, indexes=2, window=win)
                 print(win)
 
     def get_list_img(self, dir):
@@ -396,7 +403,7 @@ class tasData:
     
     def downloadWeather(self):
         #rain
-        url = f'https://www.dropbox.com/scl/fo/izet3gk0uh0hko1t2urk7/h/RainPrediction_{self.date}0900AEST.tif?rlkey=nbvlekulead5tly8tho1hy7o9&dl=1'
+        url = f'https://www.dropbox.com/scl/fo/izet3gk0uh0hko1t2urk7/h/RainPrediction24hr_{self.date}0900AEST.tif?rlkey=nbvlekulead5tly8tho1hy7o9&dl=1'
         file = f'{self.pathWeather}/RainPrediction24hr_{self.date}0900AEST.tif'
         urllib.request.urlretrieve(url, file)
         time.sleep(20)
