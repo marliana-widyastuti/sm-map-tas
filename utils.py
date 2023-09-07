@@ -5,21 +5,26 @@ import ee
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from keras.models import load_model
+# from keras.models import load_model
+from tensorflow import keras
+# from keras.models import load_model
 import os
 import joblib
 import rasterio
 from google.cloud import storage
 from rasterio.merge import merge
 from keras import backend as K
+import tensorflow as tf
 import tensorflow_probability as tfp
 import time
 import shutil
 import urllib.request
+from concurrent.futures import ProcessPoolExecutor
 
 print("package utils is loaded")
 
 ee.Initialize()
+tf.config.threading.set_inter_op_parallelism_threads(1)
 class runArea:
 
     # init method or constructor
@@ -62,6 +67,7 @@ class runArea:
 
         self.var_in = lstm_cols + mlp_cols
         self.lmod = os.listdir(model_path)
+        self.model_path = model_path
         self.key = 'sm-tassie-e4591e32eeab.json'
         
 
@@ -178,6 +184,10 @@ class runArea:
         else:
             print(task.status()['state'])
 
+    def extractPoint(self, csv):
+        df = pd.read_csv(csv)
+
+
 ## Apply model on images saved in Cloud Storage ------------------------------------------#######
     def run_mod(raster_path, tmod, out_path):
         scaleCov = joblib.load('scalerTAS.save')
@@ -225,42 +235,45 @@ class runArea:
         n = len(blob)
         return n
 
-    def exe_mod(self, model_path):
+    def exe_mod(self):
         try:
             os.mkdir(self.out + self.sep + 'raw' )
         except FileExistsError:
             print("direcory already exist")
+        mod = self.lmod
+        with ProcessPoolExecutor(max_workers=7) as executor:
+            executor.map(self.tryRun, mod)
 
+    def tryRun(self, mod):
         def ccc(y_true, x_true):
             uy, ux = K.mean(y_true), K.mean(x_true)
             sxy = tfp.stats.covariance(y_true, x_true)
             sy, sx = tfp.stats.variance(y_true), tfp.stats.variance(x_true)
             E = 2*sxy/(sy+sx+K.pow(uy-ux, 2))
             return 1-E
+        path_mod = self.model_path + self.sep +mod
+        print(path_mod)
+        tmod = keras.models.load_model(path_mod, custom_objects={'ccc':ccc}, safe_mode=False)
         
-        for i, mod in enumerate(self.lmod):
-            path_mod = model_path+mod
-            tmod = load_model(path_mod, custom_objects={'ccc':ccc})
-            
-            blob = self.get_list_img(dir='raw_input_data')
-            blob = [x for x in blob if self.pattern in x]
-            n = self.tile()
-            if n > 1:
-                for count, ob in enumerate(blob):
-                    fname = ob[19:]  ## raw_input_data/img_{fname}
-                    out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
-                    raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
-                    
-                    print((f'Processing.. model {mod} tile {count+1}'))
-                    runArea.run_mod(raster_path, tmod, out_path)
-            else:
-                ob = blob[0]
-                fname = ob[19:] ## raw_input_data/img_{fname}
+        blob = self.get_list_img(dir='raw_input_data')
+        blob = [x for x in blob if self.pattern in x]
+        n = self.tile()
+        if n > 1:
+            for count, ob in enumerate(blob):
+                fname = ob[19:]  ## raw_input_data/img_{fname}
                 out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
                 raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
                 
-                print(('Processing.. model {}').format(mod))
+                print((f'Processing.. model {mod} tile {count+1}'))
                 runArea.run_mod(raster_path, tmod, out_path)
+        else:
+            ob = blob[0]
+            fname = ob[19:] ## raw_input_data/img_{fname}
+            out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
+            raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
+            
+            print(('Processing.. model {}').format(mod))
+            runArea.run_mod(raster_path, tmod, out_path)
 
 ### Calculate SM average and standard deviation
     def combined_SM(self):
@@ -300,7 +313,7 @@ class runArea:
                 [shutil.copy(src+fn, dest) for fn in list_raw]
             except:
                 print('files already exist in', dest)
-    
+
     def calc_sm(self):
         try:
             os.mkdir(self.out + self.sep + 'map')
@@ -328,6 +341,7 @@ class runArea:
         self.saveMap(dsur_sd, f'L1_{self.res}_sd_SM_{self.date}')
         self.saveMap(dsub_mean, f'L2_{self.res}_mean_SM_{self.date}')
         self.saveMap(dsub_sd, f'L2_{self.res}_sd_SM_{self.date}')
+
 
     def saveMap(self, src, fname):
         list_sm = [f'{self.out}/merged/'+x for x in os.listdir(f'{self.out}/merged/') if self.pattern in x] ## filter based on pattern
