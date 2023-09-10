@@ -10,3 +10,7 @@ scalerTAS.save
 scaler1.save
 model_apr
 log
+static_raster
+SMAP
+chunk.ipynb
+prep.py
