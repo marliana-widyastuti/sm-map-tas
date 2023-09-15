@@ -100,9 +100,9 @@ class runArea:
     def get_daily_smap(self):
         SMAP = ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
         band_smap = SMAP.select(['sm_surface', 'sm_rootzone'])
-        startDate = self.dtime - pd.DateOffset(days=7)
+        startDate = self.datetime - pd.DateOffset(days=7)
         startDate = ee.Date(startDate.strftime('%Y-%m-%d'))
-        endDate = self.dtime - pd.DateOffset(days=4)
+        endDate = self.datetime - pd.DateOffset(days=4)
         endDate = ee.Date(endDate.strftime('%Y-%m-%d'))
         numberOfDays = endDate.difference(startDate, 'days')
 
