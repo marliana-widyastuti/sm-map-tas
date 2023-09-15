@@ -316,6 +316,10 @@ class runArea:
                 [shutil.copy(src+fn, dest) for fn in list_raw]
             except:
                 print('files already exist in', dest)
+
+    def removeDir(self):
+        src = f"{self.out}/raw/"
+        os.remove(src)
     
     def calc_sm(self):
         try:

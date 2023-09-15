@@ -51,6 +51,7 @@ for day in date_list:
     D.exportImage()
     D.exe_mod(model_path=args.modelPath)
     D.combined_SM()
+    D.removeDir()
     D.calc_sm()
     # D.SMtoGCS()
 
