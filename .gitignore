@@ -14,3 +14,7 @@ static_raster
 SMAP
 chunk.ipynb
 prep.py
+readjust.R
+RainPrediction24hr_202309090900AEST.tif
+raster_stack.tif
+rawSM_lstmTL_op55447.tif

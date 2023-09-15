@@ -5,21 +5,18 @@ import ee
 import pandas as pd
 import numpy as np
 from datetime import datetime
-# from keras.models import load_model
-from tensorflow import keras
-# from keras.models import load_model
+from keras.models import load_model
 import os
 import joblib
 import rasterio
 from google.cloud import storage
 from rasterio.merge import merge
 from keras import backend as K
-import tensorflow as tf
 import tensorflow_probability as tfp
 import time
 import shutil
 import urllib.request
-from concurrent.futures import ProcessPoolExecutor
+import tensorflow as tf
 
 print("package utils is loaded")
 
@@ -67,7 +64,6 @@ class runArea:
 
         self.var_in = lstm_cols + mlp_cols
         self.lmod = os.listdir(model_path)
-        self.model_path = model_path
         self.key = 'sm-tassie-e4591e32eeab.json'
         
 
@@ -104,12 +100,11 @@ class runArea:
     def get_daily_smap(self):
         SMAP = ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
         band_smap = SMAP.select(['sm_surface', 'sm_rootzone'])
-        startDate = self.datetime - pd.DateOffset(days=7)
+        startDate = self.dtime - pd.DateOffset(days=7)
         startDate = ee.Date(startDate.strftime('%Y-%m-%d'))
-        endDate = self.datetime - pd.DateOffset(days=4)
+        endDate = self.dtime - pd.DateOffset(days=4)
         endDate = ee.Date(endDate.strftime('%Y-%m-%d'))
         numberOfDays = endDate.difference(startDate, 'days')
-
 
         def week(i):
             start = startDate.advance(i, 'days')
@@ -120,7 +115,7 @@ class runArea:
         daily_smap = ee.ImageCollection(ee.List.sequence(0, numberOfDays).map(week))
         sort_smap = daily_smap.sort(prop='system:time_start', opt_ascending=False)
         sort_smap = sort_smap.toBands().slice(0,8).rename(self.smap_bands)
-        return sort_smap
+        return sort_smap.resample('bilinear')
     
     def get_soil():
         AWC1 = ee.Image('users/marlianatw/AWC_Tas_x0to5cm_predicted_mean').rename('AWC1')
@@ -167,7 +162,7 @@ class runArea:
         geo_exp = ee.Geometry.BBox(self.xmin, self.ymin, self.xmax, self.ymax)
         img = self.combineImages().clip(geo_exp)
         # crs = img.projection().getInfo()['crs']
-        reImg = img.resample('bilinear')
+        reImg = img
         task = ee.batch.Export.image.toCloudStorage(reImg.toFloat(), 
                                              bucket='sm-tassie',
                                              fileNamePrefix=('raw_input_data/img_{}').format(self.pattern),
@@ -184,42 +179,53 @@ class runArea:
         else:
             print(task.status()['state'])
 
-    def extractPoint(self, csv):
-        df = pd.read_csv(csv)
-
-
 ## Apply model on images saved in Cloud Storage ------------------------------------------#######
-    def run_mod(raster_path, tmod, out_path):
-        scaleCov = joblib.load('scalerTAS.save')
-        maxs = scaleCov.data_max_
-        mins = scaleCov.data_min_
-        with rasterio.open(raster_path) as src:
+    def main(infile, outfile, tmod):
+        with rasterio.open(infile) as src:
             out_meta = src.meta.copy()
-        out_meta.update({
-            "count": 2,
-            "nodata": -9999
-        })
-        
-        with (rasterio.open(raster_path, "r") as src, rasterio.open(out_path, "w", **out_meta) as dst):
-            for _, win in src.block_windows():
-                arr = src.read(window=win)
-                normalised = ((arr - mins.reshape((mins.shape[0], 1, 1)))/(maxs.reshape((maxs.shape[0], 1, 1)) - mins.reshape((mins.shape[0], 1, 1))))
-                container = []
-                container2 = []
-                for n in range(arr.shape[2]):
-                    pred = tmod.predict(np.swapaxes(normalised[:,:,n], 1, 0),verbose=0)
-                    container.append(pred[:, 0].ravel()) # pred1
-                    container2.append(pred[:, 1].ravel()) # pred2
+            out_meta.update({
+                "count": 2,
+                "nodata": -9999,
+                "blockxsize": 256 * 8,
+                "blockysize": 256 * 8,
+                "tiled": True
+            })
 
-                d1 = np.swapaxes(np.vstack(container), 1, 0)
-                d2 = np.swapaxes(np.vstack(container2), 1, 0)
+            # print(profile)
+            # return
 
-                d1[np.isnan(arr[30])] = -9999.0
-                d2[np.isnan(arr[30])] = -9999.0
+            with rasterio.open(outfile, "w", **out_meta) as dst:
+                windows = [window for ij, window in dst.block_windows()]
 
-                dst.write(d1, indexes=1, window=win)
-                dst.write(d2, indexes=2, window=win)
-                print(win)
+                scaleCov = joblib.load('scalerTAS.save')
+                maxs = scaleCov.data_max_
+                mins = scaleCov.data_min_
+
+                def process(window):
+                    print(window)
+
+                    arr = src.read(window=window)
+
+                    normalised = ((arr - mins.reshape((mins.shape[0], 1, 1)))/(maxs.reshape((maxs.shape[0], 1, 1)) - mins.reshape((mins.shape[0], 1, 1))))
+                    container = []
+                    container2 = []
+
+                    for n in range(arr.shape[2]):
+                        pred = tmod.predict(np.swapaxes(normalised[:,:,n], 1, 0),verbose=0, batch_size=256*4)
+                        container.append(pred[:, 0].ravel()) # pred1
+                        container2.append(pred[:, 1].ravel()) # pred2
+
+                    d1 = np.swapaxes(np.vstack(container), 1, 0)
+                    d2 = np.swapaxes(np.vstack(container2), 1, 0)
+
+                    d1[np.isnan(arr[30])] = -9999.0
+                    d2[np.isnan(arr[30])] = -9999.0
+
+                    dst.write(d1, indexes=1, window=window)
+                    dst.write(d2, indexes=2, window=window)
+
+                for win in windows:
+                    process(win)
 
     def get_list_img(self, dir):
         client = storage.Client.from_service_account_json(json_credentials_path=self.key)
@@ -235,45 +241,42 @@ class runArea:
         n = len(blob)
         return n
 
-    def exe_mod(self):
+    def exe_mod(self, model_path):
         try:
             os.mkdir(self.out + self.sep + 'raw' )
         except FileExistsError:
             print("direcory already exist")
-        mod = self.lmod
-        with ProcessPoolExecutor(max_workers=7) as executor:
-            executor.map(self.tryRun, mod)
 
-    def tryRun(self, mod):
         def ccc(y_true, x_true):
             uy, ux = K.mean(y_true), K.mean(x_true)
             sxy = tfp.stats.covariance(y_true, x_true)
             sy, sx = tfp.stats.variance(y_true), tfp.stats.variance(x_true)
             E = 2*sxy/(sy+sx+K.pow(uy-ux, 2))
             return 1-E
-        path_mod = self.model_path + self.sep +mod
-        print(path_mod)
-        tmod = keras.models.load_model(path_mod, custom_objects={'ccc':ccc}, safe_mode=False)
         
-        blob = self.get_list_img(dir='raw_input_data')
-        blob = [x for x in blob if self.pattern in x]
-        n = self.tile()
-        if n > 1:
-            for count, ob in enumerate(blob):
-                fname = ob[19:]  ## raw_input_data/img_{fname}
+        for i, mod in enumerate(self.lmod):
+            path_mod = model_path+mod
+            tmod = load_model(path_mod, custom_objects={'ccc':ccc})
+            
+            blob = self.get_list_img(dir='raw_input_data')
+            blob = [x for x in blob if self.pattern in x]
+            n = self.tile()
+            if n > 1:
+                for count, ob in enumerate(blob):
+                    fname = ob[19:]  ## raw_input_data/img_{fname}
+                    out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
+                    raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
+                    
+                    print((f'Processing.. model {mod} tile {count+1}'))
+                    runArea.main(raster_path, out_path, tmod)
+            else:
+                ob = blob[0]
+                fname = ob[19:] ## raw_input_data/img_{fname}
                 out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
                 raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
                 
-                print((f'Processing.. model {mod} tile {count+1}'))
-                runArea.run_mod(raster_path, tmod, out_path)
-        else:
-            ob = blob[0]
-            fname = ob[19:] ## raw_input_data/img_{fname}
-            out_path = (f'{self.out}/raw/SM_{mod}_{fname}')
-            raster_path = f'https://storage.googleapis.com/sm-tassie/{ob}'
-            
-            print(('Processing.. model {}').format(mod))
-            runArea.run_mod(raster_path, tmod, out_path)
+                print(('Processing.. model {}').format(mod))
+                runArea.main(raster_path, out_path, tmod)
 
 ### Calculate SM average and standard deviation
     def combined_SM(self):
@@ -313,7 +316,7 @@ class runArea:
                 [shutil.copy(src+fn, dest) for fn in list_raw]
             except:
                 print('files already exist in', dest)
-
+    
     def calc_sm(self):
         try:
             os.mkdir(self.out + self.sep + 'map')
@@ -341,7 +344,6 @@ class runArea:
         self.saveMap(dsur_sd, f'L1_{self.res}_sd_SM_{self.date}')
         self.saveMap(dsub_mean, f'L2_{self.res}_mean_SM_{self.date}')
         self.saveMap(dsub_sd, f'L2_{self.res}_sd_SM_{self.date}')
-
 
     def saveMap(self, src, fname):
         list_sm = [f'{self.out}/merged/'+x for x in os.listdir(f'{self.out}/merged/') if self.pattern in x] ## filter based on pattern
